@@ -18,49 +18,132 @@ import torch.nn.functional as F
 
 
 import torch.nn as nn
+class BasicBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.shortcut = nn.Sequential()
 
-def conv_bn_relu_pool(in_channels, out_channels, pool=False):
-    layers = [
-        nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1),
-        #nn.BatchNorm2d(out_channels),
-        nn.GroupNorm(32,out_channels),
-        nn.ReLU(inplace=True)
-    ]
-    if pool:
-        layers.append(nn.MaxPool2d(2))
-    return nn.Sequential(*layers)
+        # 如果输入和输出通道不同，则需要调整尺寸
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        out = torch.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = torch.relu(out)
+        return out
 
 class ResNet9(nn.Module):
-    def __init__(self, in_channels, num_classes, dim=512):
-        super().__init__()
-        self.prep = conv_bn_relu_pool(in_channels, 64)
-        self.layer1_head = conv_bn_relu_pool(64, 128, pool=True)
-        self.layer1_residual = nn.Sequential(conv_bn_relu_pool(128, 128), conv_bn_relu_pool(128, 128))
-        self.layer2 = conv_bn_relu_pool(128, 256, pool=True)
-        self.layer3_head = conv_bn_relu_pool(256, 512, pool=True)
-        self.layer3_residual = nn.Sequential(conv_bn_relu_pool(512, 512), conv_bn_relu_pool(512, 512))
-        self.MaxPool2d = nn.Sequential(
-            nn.MaxPool2d(4))
-        self.linear = nn.Linear(dim, num_classes)
-        # self.classifier = nn.Sequential(
-        #     nn.MaxPool2d(4),
-        #     nn.Flatten(),
-        #     nn.Linear(512, num_classes))
+    def __init__(self, num_classes=100):
+        super(ResNet9, self).__init__()
+        self.prep = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU()
+        )
 
+        self.layer1 = BasicBlock(64, 128, stride=2)
+        self.layer2 = BasicBlock(128, 256, stride=2)
+        self.layer3 = BasicBlock(256, 512, stride=2)
+
+        self.pool = nn.MaxPool2d(4)
+        self.linear = nn.Linear(512, num_classes)
 
     def forward(self, x):
         x = self.prep(x)
-        x = self.layer1_head(x)
-        x = self.layer1_residual(x) + x
+        x = self.layer1(x)
         x = self.layer2(x)
-        x = self.layer3_head(x)
-        x = self.layer3_residual(x) + x
-        x = self.MaxPool2d(x)
+        x = self.layer3(x)
+        x = self.pool(x)
         x = x.view(x.size(0), -1)
-        #print(x.shape)
         x = self.linear(x)
         return x
 
+# def conv_bn_relu_pool(in_channels, out_channels, pool=False):
+#     layers = [
+#         nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1),
+#         #nn.BatchNorm2d(out_channels),
+#         nn.GroupNorm(32,out_channels),
+#         nn.ReLU(inplace=True)
+#     ]
+#     if pool:
+#         layers.append(nn.MaxPool2d(2))
+#     return nn.Sequential(*layers)
+#
+# class ResNet9(nn.Module):
+#     def __init__(self, in_channels, num_classes, dim=512):
+#         super().__init__()
+#         self.prep = conv_bn_relu_pool(in_channels, 64)
+#         self.layer1_head = conv_bn_relu_pool(64, 128, pool=True)
+#         self.layer1_residual = nn.Sequential(conv_bn_relu_pool(128, 128), conv_bn_relu_pool(128, 128))
+#         self.layer2 = conv_bn_relu_pool(128, 256, pool=True)
+#         self.layer3_head = conv_bn_relu_pool(256, 512, pool=True)
+#         self.layer3_residual = nn.Sequential(conv_bn_relu_pool(512, 512), conv_bn_relu_pool(512, 512))
+#         self.MaxPool2d = nn.Sequential(
+#             nn.MaxPool2d(4))
+#         self.linear = nn.Linear(dim, num_classes)
+#         # self.classifier = nn.Sequential(
+#         #     nn.MaxPool2d(4),
+#         #     nn.Flatten(),
+#         #     nn.Linear(512, num_classes))
+#
+#
+#     def forward(self, x):
+#         x = self.prep(x)
+#         x = self.layer1_head(x)
+#         x = self.layer1_residual(x) + x
+#         x = self.layer2(x)
+#         x = self.layer3_head(x)
+#         x = self.layer3_residual(x) + x
+#         x = self.MaxPool2d(x)
+#         x = x.view(x.size(0), -1)
+#         #print(x.shape)
+#         x = self.linear(x)
+#         return x
+'''
+prep.0.weight torch.Size([64, 3, 3, 3])
+prep.0.bias torch.Size([64])
+prep.1.weight torch.Size([64])
+prep.1.bias torch.Size([64])
+layer1_head.0.weight torch.Size([128, 64, 3, 3])
+layer1_head.0.bias torch.Size([128])
+layer1_head.1.weight torch.Size([128])
+layer1_head.1.bias torch.Size([128])
+layer1_residual.0.0.weight torch.Size([128, 128, 3, 3])
+layer1_residual.0.0.bias torch.Size([128])
+layer1_residual.0.1.weight torch.Size([128])
+layer1_residual.0.1.bias torch.Size([128])
+layer1_residual.1.0.weight torch.Size([128, 128, 3, 3])
+layer1_residual.1.0.bias torch.Size([128])
+layer1_residual.1.1.weight torch.Size([128])
+layer1_residual.1.1.bias torch.Size([128])
+layer2.0.weight torch.Size([256, 128, 3, 3])
+layer2.0.bias torch.Size([256])
+layer2.1.weight torch.Size([256])
+layer2.1.bias torch.Size([256])
+layer3_head.0.weight torch.Size([512, 256, 3, 3])
+layer3_head.0.bias torch.Size([512])
+layer3_head.1.weight torch.Size([512])
+layer3_head.1.bias torch.Size([512])
+layer3_residual.0.0.weight torch.Size([512, 512, 3, 3])
+layer3_residual.0.0.bias torch.Size([512])
+layer3_residual.0.1.weight torch.Size([512])
+layer3_residual.0.1.bias torch.Size([512])
+layer3_residual.1.0.weight torch.Size([512, 512, 3, 3])
+layer3_residual.1.0.bias torch.Size([512])
+layer3_residual.1.1.weight torch.Size([512])
+layer3_residual.1.1.bias torch.Size([512])
+linear.weight torch.Size([100, 512])
+linear.bias torch.Size([100])
+'''
 # # 定义一个基础的卷积块
 # def conv3x3(in_channels, out_channels, stride=1):
 #     return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -173,6 +256,72 @@ class LeNet5Fmnist(nn.Module):
         return x
 
 
+# import torch
+# import torch.nn as nn
+# import torch.nn.functional as F
+#
+#
+# class CrossAttention(nn.Module):
+#     def __init__(self, dim):
+#         super(CrossAttention, self).__init__()
+#         self.query_layer = nn.Linear(dim, dim)
+#         self.key_layer = nn.Linear(dim, dim)
+#         self.value_layer = nn.Linear(dim, dim)
+#
+#     def forward(self, queries, keys, values):
+#         queries = self.query_layer(queries)
+#         keys = self.key_layer(keys)
+#         values = self.value_layer(values)
+#
+#         attention_scores = torch.matmul(queries, keys.transpose(-2, -1)) / (keys.size(-1) ** 0.5)
+#         attention_weights = F.softmax(attention_scores, dim=-1)
+#
+#         output = torch.matmul(attention_weights, values)
+#         return output
+#
+#
+# class LeNet5Cifar(nn.Module):
+#     def __init__(self, num_classes=10):
+#         super(LeNet5Cifar, self).__init__()
+#
+#         self.conv1 = nn.Sequential(
+#             nn.Conv2d(3, 32, kernel_size=5, padding=0, stride=1, bias=True),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=(2, 2))
+#         )
+#
+#         self.conv2 = nn.Sequential(
+#             nn.Conv2d(32, 64, kernel_size=5, padding=0, stride=1, bias=True),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=(2, 2))
+#         )
+#
+#         self.fc1 = nn.Sequential(
+#             nn.Linear(1600, 512),
+#             nn.ReLU(inplace=True)
+#         )
+#         self.fc2 = nn.Sequential(
+#             nn.Linear(512, 256),
+#             nn.ReLU(inplace=True)
+#         )
+#
+#         self.attention = CrossAttention(dim=256)  # 交叉注意力层
+#         self.fc = nn.Linear(256, num_classes)
+#
+#     def forward(self, x):
+#         x = self.conv1(x)
+#         x = self.conv2(x)
+#         x = torch.flatten(x, 1)
+#         x = self.fc1(x)
+#         x1 = self.fc2(x)  # 记录第二个全连接层的输出
+#
+#         # 应用交叉注意力机制
+#         attention_output = self.attention(x1, x1, x1)  # 自注意力，可以根据需求调整
+#         x = attention_output + x1  # 残差连接
+#         x = self.fc(x)
+#         return x
+
+
 class LeNet5Cifar(nn.Module):
     def __init__(self, num_classes=10):
 
@@ -213,7 +362,84 @@ class LeNet5Cifar(nn.Module):
         x = self.fc(x)
         return x
 
+class LeNet5fm(nn.Module):
+    def __init__(self, num_classes=10):
+        super(LeNet5fm, self).__init__()
 
+        # Layer 1: Conv2d + ReLU + MaxPool
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(1, 6, kernel_size=5, stride=1, padding=0, bias=True),  # in_channels=1, out_channels=6
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)  # kernel_size=(2, 2)
+        )
+
+        # Layer 2: Conv2d + ReLU + MaxPool
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(6, 16, kernel_size=5, stride=1, padding=0, bias=True),  # in_channels=6, out_channels=16
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)  # kernel_size=(2, 2)
+        )
+
+        # Fully connected layers
+        # After applying conv1 (28x28 -> 24x24), then conv2 (24x24 -> 20x20), and maxpool (20x20 -> 10x10)
+        self.fc1 = nn.Sequential(
+            nn.Linear(16 * 4 * 4, 120),  # in_features=16*4*4 (after conv and pool), out_features=120
+            nn.ReLU(inplace=True)
+        )
+        self.fc2 = nn.Sequential(
+            nn.Linear(120, 84),  # in_features=120, out_features=84
+            nn.ReLU(inplace=True)
+        )
+        self.fc3 = nn.Linear(84, num_classes)  # in_features=84, out_features=num_classes
+
+    def forward(self, x):
+        x = self.conv1(x)  # Layer 1
+        x = self.conv2(x)  # Layer 2
+        x = torch.flatten(x, 1)  # Flatten into a vector
+        x = self.fc1(x)  # Layer 3
+        x = self.fc2(x)  # Layer 4
+        x = self.fc3(x)  # Layer 5
+        return x
+
+
+
+class LeNet5(nn.Module):
+    def __init__(self, num_classes=10):
+        super(LeNet5, self).__init__()
+
+        # Layer 1: Conv2d + ReLU + MaxPool
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(3, 6, kernel_size=5, stride=1, padding=0, bias=True),  # in_channels=3, out_channels=6
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)  # kernel_size=(2, 2)
+        )
+
+        # Layer 2: Conv2d + ReLU + MaxPool
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(6, 16, kernel_size=5, stride=1, padding=0, bias=True),  # in_channels=6, out_channels=16
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)  # kernel_size=(2, 2)
+        )
+
+        # Fully connected layers
+        self.fc1 = nn.Sequential(
+            nn.Linear(16 * 5 * 5, 120),  # in_features=400 (16*5*5 for 32x32 input), out_features=120
+            nn.ReLU(inplace=True)
+        )
+        self.fc2 = nn.Sequential(
+            nn.Linear(120, 84),  # in_features=120, out_features=84
+            nn.ReLU(inplace=True)
+        )
+        self.fc3 = nn.Linear(84, num_classes)  # in_features=84, out_features=num_classes
+
+    def forward(self, x):
+        x = self.conv1(x)  # Layer 1
+        x = self.conv2(x)  # Layer 2
+        x = torch.flatten(x, 1)  # Flatten into a vector
+        x = self.fc1(x)  # Layer 3
+        x = self.fc2(x)  # Layer 4
+        x = self.fc3(x)  # Layer 5
+        return x
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
